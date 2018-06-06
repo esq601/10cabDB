@@ -12,7 +12,7 @@ library(plotly)
 library(tidyselect)
 
 pw <- "10CABpw"
-
+#setwd("C:/Users/marc.a.eskew.mil/Documents/R/Aircraft Hours/CABpage/CABpage")
 ui <- dashboardPage(skin="yellow",
   #### Dashboard Header ####             
   dashboardHeader(title="10th CAB Dashboard"),
@@ -60,22 +60,29 @@ ui <- dashboardPage(skin="yellow",
       ),
       tabItem(tabName = "historics",
               fluidRow(
-                column(12,tabBox(
+                column(6,tabBox(width=NULL,
                   title="RTL/Maint Historics",id="tabset2",
                   tabPanel(title="RTL Historics",plotOutput("rtfhistory")),
                   tabPanel(title="Maint. Historics",
                            plotOutput("mainthistory"),
-                           uiOutput("maintchecker")),
-                  tabPanel(title="RTL Boxplot",plotlyOutput("rtfboxplot")),
-                  width=NULL
+                           uiOutput("maintchecker"))
+                )
+                ),
+                column(6,box(width=NULL,
+                  title="RTL Boxplot",plotlyOutput("rtfboxplot")
                 )
                 )
               ),
               fluidRow(
-                column(4,box(title="Hours by Month",plotOutput("monthhour"),width=NULL)),
-                column(4,box(title="Cumulative Hours",plotOutput("cumplot"),width=NULL)),
-                column(4,box(title="Whisker Plots",plotOutput("avghour"),width=NULL))
+                column(6,box(width=NULL,
+                  title="Hours Flown",plotOutput("hourbin")
+                )
+                ),
+                column(6,box(width=NULL,
+                  title="Maintenance Events",plotOutput("eventbin")
+                ))
               )
+              
       ),
       tabItem(
               fluidRow(
@@ -155,6 +162,20 @@ server <- function(input, output,session) {
         filter(A.C.STATUS %in% c(input$statusselect))
     }
   })
+  
+  logevents <- reactive({
+    eventdf <- logdata() %>%
+      group_by(SERIAL.NUMBER) %>%
+      mutate(Maint.Change=if_else(as.character(A.C.STATUS)!=as.character(lag(A.C.STATUS)),TRUE,FALSE)) 
+    
+    eventdf$Maint.Change[is.na(eventdf$Maint.Change)] <- TRUE
+    
+    eventdf <- eventdf %>%
+      filter(Maint.Change == TRUE) %>%
+      mutate(days = lead(DATE)-DATE) %>%
+      arrange(SERIAL.NUMBER,DATE)
+  })
+
 
   #### Dynmaic Input Render ####
   
@@ -402,8 +423,6 @@ output$logdata <- renderDT({
   
   output$rtfhistory <- renderPlot({
     req(input$daterange)
-    # df1 <- isolate(input$category)
-    # print(rtfhistorydata())
 
     rtfhistoryplot <- ggplot(rtfhistorydata(),aes(x=DATE,y=Percent))
     rtfhistoryplot + geom_line(aes_string(color=input$category),size=1.5)
@@ -423,8 +442,6 @@ output$logdata <- renderDT({
   output$mainthistory <- renderPlot({
     req(input$daterange)
 
-    print(mainthistorydata())
-
     rtfhistoryplot <- ggplot(mainthistorydata(),aes(x=DATE,y=Number))
     rtfhistoryplot + geom_line(aes_string(linetype="A.C.STATUS",color=input$category),size=1)
   })
@@ -438,29 +455,96 @@ output$logdata <- renderDT({
       summarise(Number=n()) %>%
       spread(RTL,Number) 
     
-    cuts <- as.data.frame(seq(min(rtfbox$DATE),max(rtfbox$DATE),by=input$binrange))
-    colnames(cuts) <- "DATE"
-    cuts$numfactor <- as.factor(cuts$DATE)
+    cuts <- seq(min(rtfbox$DATE),max(rtfbox$DATE),by=1)
+    cutperiod <- paste0(input$binrange," days")
     
-    rtfbox <- as.data.frame(rtfbox)
+    rtfbox <- data.frame(rtfbox,numfactor = cut.Date(rtfbox$DATE,breaks = cutperiod))
+
     
-    rtfbox <- rtfbox %>%
-      left_join(cuts,by="DATE") %>%
-      fill(numfactor)
-    print(cuts)
-    print(rtfbox)
+    # rtfbox <- rtfbox %>%
+    #   left_join(cuts,by="DATE") %>%
+    #   fill(numfactor)
     rtfbox
   })
-  # means <- aggregate(Hours ~ Aircraft,rtfhistorydata(),mean)
-  # means$Hours <- round(means$Hours,digits=1)
+
   output$rtfboxplot <- renderPlotly({
     avgplot <- ggplot(rtfboxdata())
-    avgplot1 <- avgplot + geom_boxplot(aes(x=numfactor,y=Y,group=numfactor))#+ stat_summary(fun.y=median, color="darkred", geom="point", 
-    ggplotly(avgplot1)#                                      shape=18, size=3,show.legend = FALSE)  
-    # geom_text(data = means, aes(label = Hours, y = Hours + 0.08))
+    avgplot1 <- avgplot + geom_boxplot(aes(x=numfactor,y=Y,group=numfactor))
+    ggplotly(avgplot1)
     })
 
+  
+  #### Hours Analysis ####
+  hourbindata <- reactive({
+    hourbindf <- as.data.frame(logdata())
+    
+    cuts <- seq(min(hourbindf$DATE),max(hourbindf$DATE),by=1)
+    cutperiod <- paste0(input$binrange," days")
+    
+    hourbindf <- data.frame(hourbindf,numfactor = cut.Date(hourbindf$DATE,breaks = cutperiod))
+    
+
+    hourbindf <- hourbindf %>%
+      dplyr::filter(DATE >= input$daterange[1] & DATE <= input$daterange[2]) %>%
+      dplyr::group_by_("SERIAL.NUMBER") %>%
+      dplyr::arrange_(input$category,"SERIAL.NUMBER","DATE") %>%
+      dplyr::mutate(DAY.HOURS = ACFT.HOURS - lag(ACFT.HOURS,default=first(ACFT.HOURS))) %>%
+      dplyr::group_by_(input$category,"numfactor") %>%
+      dplyr::summarise(Hours = sum(DAY.HOURS))
+
+  hourbindf
+  })
+  
+  output$hourbin <- renderPlot({
+    req(input$daterange)
+    
+    hourbinplot <- ggplot(hourbindata(),aes(x=numfactor,y=Hours))
+    hourbinplot + geom_bar(stat="identity",aes_string(fill=input$category))
+  })
+  
+  #### Maintenance Event Setup ####
+  
+  
+  dfevents <- reactive({
+    dfevents1 <- logdata() %>%
+      group_by(SERIAL.NUMBER) %>%
+      mutate(Maint.Change=if_else(as.character(A.C.STATUS)!=as.character(lag(A.C.STATUS)),TRUE,FALSE)) 
+    
+    dfevents1$Maint.Change[is.na(dfevents1$Maint.Change)] <- TRUE
+    dfevents1
+  })
+  
+ eventbindata <- reactive({
+   
+    eventbindf <- as.data.frame(dfevents())
+    
+    cuts <- seq(min(eventbindf$DATE),max(eventbindf$DATE),by=1)
+    cutperiod <- paste0(input$binrange," days")
+
+    eventbindf <- data.frame(eventbindf,numfactor = cut.Date(eventbindf$DATE,breaks = cutperiod))
+    
+    eventbindf <- eventbindf %>%
+      dplyr::filter(DATE >= input$daterange[1] & DATE <= input$daterange[2]) %>%
+      dplyr::group_by_("SERIAL.NUMBER") %>%
+      dplyr::arrange_(input$category,"SERIAL.NUMBER","DATE") %>%
+      dplyr::group_by_(input$category,"numfactor") %>%
+      dplyr::filter(Maint.Change==TRUE) %>%
+      dplyr::filter(DATE!=min(dfevents()$DATE)) %>%
+      dplyr::summarise(Events=n())
+
+    eventbindf
+  })
+    
+ output$eventbin <- renderPlot({
+   req(input$daterange)
+   
+   eventbinplot <- ggplot(eventbindata(),aes(x=numfactor,y=Events))
+   eventbinplot + geom_bar(stat="identity",aes_string(fill=input$category))
+ })
+ 
  }
 # Run the application 
 shinyApp(ui,server)
+#runApp(shinyApp(ui,server), host="0.0.0.0", port=3168)
+
 
