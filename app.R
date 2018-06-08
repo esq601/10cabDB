@@ -8,6 +8,7 @@ library(readxl)
 library(lubridate)
 library(directlabels)
 library(DT)
+library(ggthemes)
 library(plotly)
 library(tidyselect)
 
@@ -19,14 +20,12 @@ ui <- dashboardPage(skin="yellow",
   
   dashboardSidebar(
     sidebarMenu(
-      menuItem("Navigation Links",
-               menuSubItem("Current Aircraft Status",tabName="current",icon=icon("info")),
-               menuSubItem("Readiness & Maint. Historics",tabName = "historics",icon=icon("graph")),
-               menuSubItem("Trend Analysis",tabName = "trends",icon=icon("calendar-check")),
-               menuSubItem("Aircraft Analysis",tabName = "aircraft",icon=icon("helicopter")),
-               menuSubItem("Monthly Reports",tabName = "month",icon=icon("calendar")),
-               menuSubItem("DSR Upload (Admin)",tabName = "upload",icon=icon("arrow-circle-up"))
-      ),
+      menuItem("Current Aircraft Status",tabName="current",icon=icon("info")),
+      menuItem("Readiness & Maint. Historics",tabName = "historics",icon=icon("calendar",lib="glyphicon")),
+      menuItem("Trend Analysis",tabName = "trends",icon=icon("signal",lib="glyphicon")),
+      menuItem("Aircraft Analysis",tabName = "aircraft",icon=icon("paperclip")),
+      menuItem("Monthly Reports",tabName = "month",icon=icon("calendar")),
+      menuItem("DSR Upload (Admin)",tabName = "upload",icon=icon("arrow-circle-up")),
       menuItem("Customization Tools", startExpanded = TRUE,
                radioButtons("category","Type Category",
                             choices = c("Unit"="UNIT","MDS"="MDS"),selected="MDS"),
@@ -39,6 +38,9 @@ ui <- dashboardPage(skin="yellow",
   ),
   #### Dashboard Body ####
   dashboardBody(
+    tags$head(
+      tags$link(rel="stylesheet",type="text/css",href="custom.css")
+    ),
     tabItems(
       tabItem(tabName = "current",
               fluidRow(
@@ -69,20 +71,57 @@ ui <- dashboardPage(skin="yellow",
                 )
                 ),
                 column(6,box(width=NULL,
-                  title="RTL Boxplot",plotlyOutput("rtfboxplot")
+                  title="RTL Boxplot",footer="Boxplots display the median number of AC RTL for the time period. 
+                  The middle 50% of the data is inside the box, and outlier spread on the whiskers.",
+                   plotlyOutput("rtfboxplot")
                 )
                 )
               ),
               fluidRow(
                 column(6,box(width=NULL,
-                  title="Hours Flown",plotOutput("hourbin")
+                  title="Hours Flown",footer="Displays the total number of hours flown during set time period.",
+                  plotOutput("hourbin")
                 )
                 ),
                 column(6,box(width=NULL,
-                  title="Maintenance Events",plotOutput("eventbin")
+                  title="Maintenance Events",footer="Displays the total number of AC that go from RTL status to non-RTL status.",
+                  plotlyOutput("eventbin")
                 ))
               )
               
+      ),
+      tabItem(
+        tabName = "trends",
+        column(9,
+               fluidRow(
+                 column(6,
+                        box(width=NULL,
+                            title="Maintenance Event Ranks",
+                            plotOutput("eventrank"))),
+                 column(6,
+                        box(width=NULL,
+                            title="Down Time Ranks",
+                            plotOutput("downtimerank"))),
+                 column(12,tabBox(width=NULL,
+                                 title="Up time Analysis",id="tabset3",
+                                 tabPanel(title="Days Analysis",plotOutput("updowndays")),
+                                 tabPanel(title="ACFT Hours Analysis",plotOutput("updownhours"))
+                 )
+                 )
+               )
+        ),
+        column(3,
+               fluidRow(
+                 tabBox(width=NULL,
+                        title="Total Up Time Analysis",id="tabset4",
+                        tabPanel(title="Day",plotOutput("updowndaystotal",height=800),br(),
+                                 "This chart displays the difference by aircraft from the mean number of days to a downtime event."),
+                        tabPanel(title="Hour",plotOutput("updownhourstotal",height=800),br(),
+                                 "This chart displays the difference by aircraft from the mean number of ACFT Hrs. to a downtime event.")
+                 )
+               )
+        )
+        
       ),
       tabItem(
               fluidRow(
@@ -300,6 +339,7 @@ output$logdata <- renderDT({
     df3 <- select(df3, -X__6)
     source("dataupload.r",local=TRUE)
     save(AClog,file="aclog.rda")
+    showNotification("Upload Complete!")
   })
   
   output$downloadLog <- downloadHandler(
@@ -325,7 +365,7 @@ output$logdata <- renderDT({
   output$rtfnow <- renderPlot({
     req(input$category)
     plotrtl <- ggplot(rtldata(),aes_string(x=input$category,y="Number"))
-    plotrtl + geom_bar(stat="identity",aes(fill=RTL)) + geom_text(aes(label=Number),size=7,position=position_stack(vjust=.4))
+    plotrtl + geom_bar(stat="identity",aes(fill=RTL)) + geom_text(aes(label=Number),size=7,position=position_stack(vjust=.4)) 
 
   })
   
@@ -358,7 +398,7 @@ output$logdata <- renderDT({
     req(input$category)
     htpplot <- ggplot(hoursdata(),aes(x=HRS.TO.PHASE))
     htpplotly <- htpplot + geom_histogram(binwidth = input$binrange,aes_string(fill=input$category)) + 
-      stat_bin(binwidth=input$binrange,aes(label=..count..),geom = "text",vjust=-.4)
+      stat_bin(binwidth=input$binrange,aes(label=..count..),geom = "text",vjust=-.4)  + theme_pander() + scale_fill_pander()
     ggplotly(htpplotly)
   })
   
@@ -425,7 +465,7 @@ output$logdata <- renderDT({
     req(input$daterange)
 
     rtfhistoryplot <- ggplot(rtfhistorydata(),aes(x=DATE,y=Percent))
-    rtfhistoryplot + geom_line(aes_string(color=input$category),size=1.5)
+    rtfhistoryplot + geom_line(aes_string(color=input$category),size=1.5)  + theme_pander() + scale_color_pander()
   })
 
   
@@ -443,7 +483,7 @@ output$logdata <- renderDT({
     req(input$daterange)
 
     rtfhistoryplot <- ggplot(mainthistorydata(),aes(x=DATE,y=Number))
-    rtfhistoryplot + geom_line(aes_string(linetype="A.C.STATUS",color=input$category),size=1)
+    rtfhistoryplot + geom_line(aes_string(linetype="A.C.STATUS",color=input$category),size=1)  + theme_pander() + scale_color_pander()
   })
   
   
@@ -499,7 +539,7 @@ output$logdata <- renderDT({
     req(input$daterange)
     
     hourbinplot <- ggplot(hourbindata(),aes(x=numfactor,y=Hours))
-    hourbinplot + geom_bar(stat="identity",aes_string(fill=input$category))
+    hourbinplot + geom_bar(stat="identity",aes_string(fill=input$category)) + theme_pander() + scale_fill_pander()
   })
   
   #### Maintenance Event Setup ####
@@ -508,9 +548,12 @@ output$logdata <- renderDT({
   dfevents <- reactive({
     dfevents1 <- logdata() %>%
       group_by(SERIAL.NUMBER) %>%
-      mutate(Maint.Change=if_else(as.character(A.C.STATUS)!=as.character(lag(A.C.STATUS)),TRUE,FALSE)) 
+      arrange(SERIAL.NUMBER,DATE) %>%
+      mutate(A.C.DOWN=if_else((as.character(RTL)=="N" & as.character(lag(RTL))=="Y") ,TRUE,FALSE)) %>%
+      mutate(A.C.UP=if_else((as.character(RTL)=="Y" & as.character(lag(RTL))=="N") ,TRUE,FALSE))
     
-    dfevents1$Maint.Change[is.na(dfevents1$Maint.Change)] <- TRUE
+    dfevents1$A.C.DOWN <- replace_na(dfevents1$A.C.DOWN,FALSE)
+    dfevents1$A.C.UP <- replace_na(dfevents1$A.C.UP,FALSE)
     dfevents1
   })
   
@@ -528,19 +571,159 @@ output$logdata <- renderDT({
       dplyr::group_by_("SERIAL.NUMBER") %>%
       dplyr::arrange_(input$category,"SERIAL.NUMBER","DATE") %>%
       dplyr::group_by_(input$category,"numfactor") %>%
-      dplyr::filter(Maint.Change==TRUE) %>%
+      dplyr::filter(A.C.DOWN==TRUE) %>%
       dplyr::filter(DATE!=min(dfevents()$DATE)) %>%
       dplyr::summarise(Events=n())
 
     eventbindf
   })
     
- output$eventbin <- renderPlot({
+ output$eventbin <- renderPlotly({
    req(input$daterange)
    
    eventbinplot <- ggplot(eventbindata(),aes(x=numfactor,y=Events))
-   eventbinplot + geom_bar(stat="identity",aes_string(fill=input$category))
+   eventbinplotly <- eventbinplot + geom_bar(stat="identity",aes_string(fill=input$category))  + theme_pander() + scale_fill_pander()
+   ggplotly(eventbinplotly)
  })
+ 
+ #### Aircraft Event Ranking ####
+ 
+ eventrankdata <- reactive({
+   
+   eventrankdf <- dfevents() %>%
+     dplyr::filter(DATE >= input$daterange[1] & DATE <= input$daterange[2]) %>%
+     dplyr::arrange_(input$category,"SERIAL.NUMBER","DATE") %>%
+     dplyr::group_by_(input$category,"SERIAL.NUMBER") %>%
+     dplyr::filter(A.C.DOWN==TRUE) %>%
+     dplyr::summarise(Events=n()) %>%
+     ungroup() %>%
+     dplyr::arrange(desc(Events)) %>%
+     slice(1:15)
+
+   eventrankdf
+ })
+ 
+ output$eventrank <- renderPlot({
+   req(input$daterange)
+   
+   eventrankplot <- ggplot(eventrankdata(),aes(x=reorder(SERIAL.NUMBER,Events),y=Events))
+   eventrankplot + geom_bar(stat="identity",aes_string(fill=input$category))  +
+     theme_pander() + scale_fill_pander() +xlab("Serial Number")+ coord_flip() 
+
+ })
+ 
+ #### Aircraft Down Time ####
+ 
+ downtimedata <- reactive({
+   
+   downtimedf <- dfevents() %>%
+     dplyr::filter(DATE >= input$daterange[1] & DATE <= input$daterange[2]) %>%
+     dplyr::arrange_(input$category,"SERIAL.NUMBER","DATE") %>%
+     dplyr::group_by_(input$category,"SERIAL.NUMBER") %>%
+     dplyr::filter(RTL=="N") %>%
+     dplyr::summarise(`Days Down`=n()) %>%
+     ungroup() %>%
+     dplyr::arrange(desc(`Days Down`)) %>%
+     slice(1:15)
+   
+ })
+ 
+ output$downtimerank <- renderPlot({
+   req(input$daterange)
+   
+   downtimerankplot <- ggplot(downtimedata(),aes(x=reorder(SERIAL.NUMBER,`Days Down`),y=`Days Down`))
+   downtimerankplot + geom_bar(stat="identity",aes_string(fill=input$category))+xlab("Serial Number") +
+     coord_flip()  + theme_pander() + scale_fill_pander()
+   
+ })
+ 
+ #### Downtime Analysis ####
+ 
+ updowndata <- reactive({
+   logdata() %>%
+     dplyr::filter(DATE >= input$daterange[1] & DATE <= input$daterange[2]) %>%
+     group_by(SERIAL.NUMBER) %>%
+     arrange(SERIAL.NUMBER,DATE) %>%
+     mutate(A.C.DOWN=if_else((as.character(RTL)=="N" & as.character(lag(RTL))=="Y") ,TRUE,FALSE)) %>%
+     mutate(A.C.UP=if_else((as.character(RTL)=="Y" & as.character(lag(RTL))=="N") ,TRUE,FALSE)) %>%
+     filter(A.C.UP==TRUE | A.C.DOWN==TRUE) %>%
+     mutate(GoodHours=if_else((A.C.DOWN==TRUE) & lag(A.C.UP==TRUE),ACFT.HOURS-lag(ACFT.HOURS),0)) %>%
+     mutate(GoodDays=if_else((A.C.DOWN==TRUE) & lag(A.C.UP==TRUE),DATE-lag(DATE),0)) %>%
+     mutate(badDays=if_else((A.C.UP==TRUE) & lag(A.C.DOWN==TRUE),DATE-lag(DATE),0)) %>%
+     mutate(badHours=if_else((A.C.UP==TRUE) & lag(A.C.DOWN==TRUE),ACFT.HOURS-lag(ACFT.HOURS),0))
+ })
+ 
+ updowntotaldata <- reactive({
+   updowndata() %>%
+     filter(badDays > 0) %>%
+     group_by_(input$category,"SERIAL.NUMBER") %>%
+     summarise(TotalDays = sum(badDays),TotalHours=sum(badHours)) %>%
+     filter(TotalDays>0 | TotalHours>0) %>%
+     ungroup() %>%
+     mutate(DaysDiff = round(TotalDays-mean(na.omit(TotalDays)),digits=1)) %>%
+     mutate(AboveBelow = if_else(DaysDiff>=0,TRUE,FALSE)) %>%
+     mutate(HoursDiff = round(TotalHours-mean(na.omit(TotalHours)),digits=1)) %>%
+     mutate(AboveBelowh = if_else(HoursDiff>=0,TRUE,FALSE))
+
+ })
+ 
+ updowngooddata <- reactive({
+   updowndata() %>%
+     filter(GoodDays >0)
+ })
+ 
+ output$updowndays <- renderPlot({
+   req(input$daterange)
+   
+   updowndaysplot <- ggplot(updowngooddata(),aes(x=GoodDays))
+   updowndaysplot + geom_density(aes_string(fill=input$category),alpha=.4) + 
+     xlab("Days between Up and Down Status")  + theme_pander() + scale_fill_pander()
+   
+ })
+ 
+ output$updownhours <- renderPlot({
+   updownhoursplot <- ggplot(updowngooddata(),aes(x=GoodHours))
+   updownhoursplot + geom_density(aes_string(fill=input$category),alpha=.4) + 
+     xlab("ACFT Hours between Up and Down Status") + theme_pander() + scale_fill_pander()
+ })
+ 
+ output$updowndaystotal <- renderPlot({
+   ggplot(updowntotaldata(),aes(x=reorder(SERIAL.NUMBER,DaysDiff),y=DaysDiff,label=DaysDiff)) +
+     geom_segment(aes(y=0,x=reorder(SERIAL.NUMBER,DaysDiff),yend=DaysDiff,xend=reorder(SERIAL.NUMBER,DaysDiff)),color="black") +
+     geom_point(stat='identity',aes(color=AboveBelow),  size=10)  +
+     geom_text(color="white", size=4) +
+     scale_color_manual(name="Average to Down Status", 
+                        labels = c("Below Average", "Above Average"), 
+                        values = c("TRUE"="#00ba38", "FALSE"="#f8766d")) +
+     labs(title=paste0("Mean Days to Downtime: ",round(mean(na.omit(updowntotaldata()$TotalDays)),1))) + 
+     xlab("Serial Number") +
+     ylab("Mean Days Between Downtime") +
+     theme(legend.position = "none") +
+     coord_flip()
+ })
+ 
+ output$updownhourstotal <- renderPlot({
+   dfupdown<- updowntotaldata() %>%
+     filter(!is.na(HoursDiff))
+   
+   ggplot(dfupdown,aes(x=reorder(SERIAL.NUMBER,HoursDiff),y=HoursDiff,label=HoursDiff)) +
+     geom_segment(aes(y=0,x=reorder(SERIAL.NUMBER,HoursDiff),yend=HoursDiff,xend=reorder(SERIAL.NUMBER,HoursDiff)),color="black") +
+     geom_point(stat='identity',aes(color=AboveBelowh),  size=10) +
+     geom_text(color="white", size=4) +
+     scale_color_manual(name="Average ACFT Hrs. to Down Status", 
+                        labels = c("Below Average", "Above Average"), 
+                        values = c("TRUE"="#00ba38", "FALSE"="#f8766d")) +
+     labs(title=paste0("Mean Hours to Downtime: ",round(mean(na.omit(dfupdown$TotalHours)),1))) + 
+     xlab("Serial Number") +
+     ylab("Mean ACFT Hrs. Between Downtime") +
+     theme(legend.position = "none") +
+     coord_flip()
+ })
+ 
+ 
+ #### Individual Aircraft Area!! ####
+ 
+ 
  
  }
 # Run the application 
