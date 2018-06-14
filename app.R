@@ -23,8 +23,8 @@ ui <- dashboardPage(skin="yellow",
       menuItem("Current Aircraft Status",tabName="current",icon=icon("info")),
       menuItem("Readiness & Maint. Historics",tabName = "historics",icon=icon("calendar",lib="glyphicon")),
       menuItem("Trend Analysis",tabName = "trends",icon=icon("signal",lib="glyphicon")),
-      menuItem("Aircraft Analysis",tabName = "aircraft",icon=icon("paperclip")),
-      menuItem("Monthly Reports",tabName = "month",icon=icon("calendar")),
+      # menuItem("Aircraft Analysis",tabName = "aircraft",icon=icon("paperclip")),
+      # menuItem("Monthly Reports",tabName = "month",icon=icon("calendar")),
       menuItem("DSR Upload (Admin)",tabName = "upload",icon=icon("arrow-circle-up")),
       menuItem("Customization Tools", startExpanded = TRUE,
                radioButtons("category","Type Category",
@@ -53,7 +53,8 @@ ui <- dashboardPage(skin="yellow",
                   title="10th CAB Status",id="tabset1",
                   tabPanel(title="Ready to Fly",plotOutput("rtfnow")),
                   tabPanel(title="Maintenance Status",plotOutput("maintnow")),
-                  tabPanel(title="Hours to Phase",plotlyOutput("htpnow")),
+                  tabPanel(title="Hours to Phase",plotlyOutput("htpnow"),br(),
+                           "Utilize 'Bin Range' slider to adjust hour bins"),
                   tabPanel(title="Location",tableOutput("locnow")),
                   width=NULL
                 )
@@ -64,7 +65,10 @@ ui <- dashboardPage(skin="yellow",
               fluidRow(
                 column(6,tabBox(width=NULL,
                   title="RTL/Maint Historics",id="tabset2",
-                  tabPanel(title="RTL Historics",plotOutput("rtfhistory")),
+                  tabPanel(title="RTL Historics",plotOutput("rtfhistory"),
+                           checkboxInput("smoothfilter","Show Smooth Line?",value=TRUE),
+                           sliderInput("smoothrange","Smoothness",min=1,max=100,value=50)
+                  ),
                   tabPanel(title="Maint. Historics",
                            plotOutput("mainthistory"),
                            uiOutput("maintchecker"))
@@ -79,12 +83,12 @@ ui <- dashboardPage(skin="yellow",
               ),
               fluidRow(
                 column(6,box(width=NULL,
-                  title="Hours Flown",footer="Displays the total number of hours flown during set time period.",
+                  title="Hours Flown",footer="Displays the total number of hours flown during set date bin",
                   plotOutput("hourbin")
                 )
                 ),
                 column(6,box(width=NULL,
-                  title="Maintenance Events",footer="Displays the total number of AC that go from RTL status to non-RTL status.",
+                  title="Maintenance Events",footer="Displays the total number of AC that go from RTL status to non-RTL status during date bin.",
                   plotlyOutput("eventbin")
                 ))
               )
@@ -97,15 +101,19 @@ ui <- dashboardPage(skin="yellow",
                  column(6,
                         box(width=NULL,
                             title="Maintenance Event Ranks",
-                            plotOutput("eventrank"))),
+                            plotOutput("eventrank"),br(),
+                            "Top 15 Aircraft by number of times transferring to non-RTL.")),
                  column(6,
                         box(width=NULL,
                             title="Down Time Ranks",
-                            plotOutput("downtimerank"))),
+                            plotOutput("downtimerank"),br(),
+                            "Top 15 Aircraft by number of days non-RTL.")),
                  column(12,tabBox(width=NULL,
                                  title="Up time Analysis",id="tabset3",
-                                 tabPanel(title="Days Analysis",plotOutput("updowndays")),
-                                 tabPanel(title="ACFT Hours Analysis",plotOutput("updownhours"))
+                                 tabPanel(title="Days Analysis",plotOutput("updowndays"),br(),
+                                          "This chart displays a density plot of days between an aircraft going RTL to non-RTL"),
+                                 tabPanel(title="ACFT Hours Analysis",plotOutput("updownhours"),br(),
+                                          "This chart displays a density plot of the number of flight hours between an aircraft going RTL to non-RTL")
                  )
                  )
                )
@@ -382,7 +390,7 @@ output$logdata <- renderDT({
   output$maintnow <- renderPlot({
     req(input$category)
     statusbin <- ggplot(maintdata(),aes_string(x=input$category,y="A.C.STATUS"))
-    statusbin + geom_bin2d(aes(fill=freq)) + geom_text(aes(label=scales::percent(freq)),size=7)
+    statusbin + geom_bin2d(aes(fill=freq)) + geom_text(aes(label=scales::percent(freq)),size=7)  + scale_fill_distiller(palette="YlOrBr",direction = 1)
   })
 
   #### Hours to Phase Box ####
@@ -465,7 +473,14 @@ output$logdata <- renderDT({
     req(input$daterange)
 
     rtfhistoryplot <- ggplot(rtfhistorydata(),aes(x=DATE,y=Percent))
-    rtfhistoryplot + geom_line(aes_string(color=input$category),size=1.5)  + theme_pander() + scale_color_pander()
+    rtfhistoryplot1 <- rtfhistoryplot + geom_line(aes_string(color=input$category),size=1)  + 
+      theme_pander() + scale_color_pander()
+    
+    if(input$smoothfilter) {
+      rtfhistoryplot1 <- rtfhistoryplot1 + geom_smooth(span=(.01*input$smoothrange),size=1.5,se=FALSE)
+    }
+    
+    rtfhistoryplot1
   })
 
   
@@ -508,6 +523,7 @@ output$logdata <- renderDT({
   })
 
   output$rtfboxplot <- renderPlotly({
+    req(input$category)
     avgplot <- ggplot(rtfboxdata())
     avgplot1 <- avgplot + geom_boxplot(aes(x=numfactor,y=Y,group=numfactor))
     ggplotly(avgplot1)
